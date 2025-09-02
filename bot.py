@@ -25,10 +25,7 @@ conn = sqlite3.connect('users.db', check_same_thread=False)
 def execute_db(query, params=(), fetch=False):
     cur = conn.cursor()
     cur.execute(query, params)
-    if fetch:
-        result = cur.fetchone()
-    else:
-        result = None
+    result = cur.fetchone() if fetch else None
     conn.commit()
     cur.close()
     return result
@@ -59,7 +56,10 @@ def get_credits(user_id):
     return row[0] if row else 0
 
 def add_referral(ref_user_id):
-    execute_db("UPDATE users SET credits=credits+1 WHERE user_id=?", (str(ref_user_id),))
+    # Give credit only if the referred user exists
+    ref_row = execute_db("SELECT user_id FROM users WHERE user_id=?", (str(ref_user_id),), fetch=True)
+    if ref_row:
+        execute_db("UPDATE users SET credits=credits+1 WHERE user_id=?", (str(ref_user_id),))
 
 def get_referral_link(user_id):
     return f"https://t.me/{BOT_USERNAME}?start=REF{user_id}"
@@ -114,12 +114,23 @@ def check_joined(user_id):
 def start(message):
     user_id = message.from_user.id
     ref_by = None
-    if message.text.startswith("/start REF"):
+    is_new_user = False
+
+    # Check if user exists
+    row = execute_db("SELECT user_id FROM users WHERE user_id=?", (str(user_id),), fetch=True)
+    if not row:
+        is_new_user = True
+
+    # Handle referral only for new users
+    if message.text.startswith("/start REF") and is_new_user:
         ref_code = message.text.split("REF")[1]
         ref_by = ref_code
         add_referral(ref_by)
         bot.send_message(user_id, f"🎉 1 credit added for referral!")
-    add_user(user_id, ref_by)
+
+    # Add user if new
+    if is_new_user:
+        add_user(user_id, ref_by)
 
     if not check_joined(user_id):
         markup = InlineKeyboardMarkup()
